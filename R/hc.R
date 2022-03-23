@@ -29,6 +29,8 @@
 #' ssd_hc(fits)
 #' ssd_hc(estimates(fits))
 #' ssd_hc(ssd_match_moments())
+#' ssd_hc(fits, samples=TRUE)
+#' ssd_hc(fits, samples=TRUE, average=FALSE)
 ssd_hc <- function(x, ...) {
   UseMethod("ssd_hc")
 }
@@ -63,7 +65,8 @@ no_ssd_hc <- function() {
 
 .ssd_hc_tmbfit <- function(x, proportion, ci, level, nboot, min_pboot, 
                            data, rescale, weighted, censoring, min_pmix, 
-                           range_shape1, range_shape2, parametric, control) {
+                           range_shape1, range_shape2, parametric, control, samples) {
+
   args <- estimates(x)
   args$p <- proportion
   dist <- .dist_tmbfit(x)
@@ -72,6 +75,17 @@ no_ssd_hc <- function() {
   est <- do.call(what, args)
   if (!ci) {
     na <- rep(NA_real_, length(proportion))
+    if(!samples) {samples_hc <- na} else {
+      censoring <- censoring / rescale
+      fun <- safely(fit_tmb)
+      estimates <- boot_estimates(x, fun = fun, nboot = nboot, data = data, weighted = weighted,
+                                  censoring = censoring, min_pmix = min_pmix,
+                                  range_shape1 = range_shape1,
+                                  range_shape2 = range_shape2,
+                                  parametric = parametric,
+                                  control = control)
+      samples_hc <- hcsamples(estimates, what, x = proportion)
+    }
     return(tibble(
       dist = rep(dist, length(proportion)),
       percent = proportion * 100, 
@@ -81,7 +95,11 @@ no_ssd_hc <- function() {
       ucl = na,
       wt = rep(1, length(proportion)),
       nboot = rep(0L, length(proportion)),
-      pboot = na))
+      pboot = na,
+      samples =  samples_hc))
+  }
+  if(samples) {
+    stop("Confidence intervals and bootstrap samples cannot both be returned, set either ci or samples to FALSE")
   }
   censoring <- censoring / rescale
   fun <- safely(fit_tmb)
@@ -104,7 +122,7 @@ no_ssd_hc <- function() {
 }
 
 .ssd_hc_fitdists <- function(x, percent, ci, level, nboot,
-                             average, min_pboot, parametric, control) {
+                             average, min_pboot, parametric, control, samples) {
   if (!length(x) || !length(percent)) {
     return(no_ssd_hc())
   }
@@ -130,7 +148,7 @@ no_ssd_hc <- function() {
     wrn("Parametric CIs cannot be calculated for unequally weighted data.")
     ci <- FALSE
   }
-  if(!ci) {
+  if(!ci & !samples) {
     nboot <- 0L
   }
   seeds <- seed_streams(length(x))
@@ -138,18 +156,24 @@ no_ssd_hc <- function() {
                    min_pboot = min_pboot,
                    data = data, rescale = rescale, weighted = weighted, censoring = censoring,
                    min_pmix = min_pmix, range_shape1 = range_shape1, range_shape2 = range_shape2,
-                   parametric = parametric, control = control, 
+                   parametric = parametric, control = control, samples = samples,
                    .options = furrr::furrr_options(seed = seeds))
-  
+
   weight <- glance(x)$weight
   if (!average) {
     hc <- mapply(function(x,y) {x$wt <- y; x}, x = hc, y = weight,
                  USE.NAMES = FALSE, SIMPLIFY = FALSE)
     hc <- bind_rows(hc)
     hc$method <- if(parametric) "parametric" else "non-parametric"
-    hc <- hc[c("dist", "percent", "est", "se", "lcl", "ucl", "wt", "method", "nboot", "pboot")]
+    hc <- hc[c("dist", "percent", "est", "se", "lcl", "ucl", "wt", "method", "nboot", "pboot", "samples")]
     return(hc)
   }
+  if (!samples) { samples_out <- NA } else { 
+    samples_all <- lapply(hc, FUN = function(x){
+      unlist(x$samples)})
+    samples_out <-  weighted_samples(x=samples_all, w=weight) 
+    }
+  
   hc <- lapply(hc, function(x) x[c("percent", "est", "se", "lcl", "ucl", "pboot")])
   hc <- lapply(hc, as.matrix)
   hc <- Reduce(function(x, y) {
@@ -160,9 +184,10 @@ no_ssd_hc <- function() {
   min <- as.data.frame(min)
   hc <- as.data.frame(hc)
   method <- if(parametric) "parametric" else "non-parametric"
+
   tibble(dist = "average", percent = percent, est = hc$est, se = hc$se, 
          lcl = hc$lcl, ucl = hc$ucl, wt = rep(1, length(percent)), 
-         method = method, nboot = nboot, pboot = min$pboot)
+         method = method, nboot = nboot, pboot = min$pboot, samples = list(weighted_samples=samples_out))
 }
 
 #' @describeIn ssd_hc Hazard Concentrations for Distributional Estimates
@@ -192,7 +217,7 @@ ssd_hc.list <- function(x, percent = 5, hc = 5, ...) {
 ssd_hc.fitdists <- function(x, percent = 5, hc = 5, ci = FALSE, level = 0.95, nboot = 1000, 
                             average = TRUE, delta = 7, min_pboot = 0.99,
                             parametric = TRUE,
-                            control = NULL,  ...) {
+                            control = NULL, samples = FALSE, ...) {
   chk_vector(percent)
   chk_numeric(percent)
   chk_range(percent, c(0,100))
@@ -220,7 +245,7 @@ ssd_hc.fitdists <- function(x, percent = 5, hc = 5, ci = FALSE, level = 0.95, nb
   x <- subset(x, delta = delta)
   hc <- .ssd_hc_fitdists(x, percent,
                    ci = ci, level = level, nboot = nboot, min_pboot = min_pboot, control = control,
-                   average = average, parametric = parametric)
+                   average = average, parametric = parametric, samples = samples)
   warn_min_pboot(hc, min_pboot)
 }
 
