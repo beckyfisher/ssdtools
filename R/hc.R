@@ -169,8 +169,7 @@ no_ssd_hc <- function() {
     return(hc)
   }
   if (!samples) { samples_out <- NA } else { 
-    samples_all <- lapply(hc, FUN = function(x){
-      unlist(x$samples)})
+    samples_all <- lapply(hc, FUN = function(x){x$samples})
     samples_out <-  weighted_samples(x=samples_all, w=weight) 
     }
   
@@ -187,7 +186,7 @@ no_ssd_hc <- function() {
 
   tibble(dist = "average", percent = percent, est = hc$est, se = hc$se, 
          lcl = hc$lcl, ucl = hc$ucl, wt = rep(1, length(percent)), 
-         method = method, nboot = nboot, pboot = min$pboot, samples = list(weighted_samples=samples_out))
+         method = method, nboot = nboot, pboot = min$pboot, samples = samples_out)
 }
 
 #' @describeIn ssd_hc Hazard Concentrations for Distributional Estimates
