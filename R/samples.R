@@ -30,7 +30,9 @@ hcsamples <- function(estimates, what, x, .names = NULL) {
 }
 
 weighted_samples <- function(x, w, ...){
-  min_nboot <- length(x[[1]][[1]])
+  min_nboot <- min(unlist(lapply(x, FUN = function(y){
+    sapply(y, length)
+  })))
   lapply(1:length(x[[1]]), FUN = function(i){
     lapply(1:length(x), FUN = function(y){
       sample(x=x[[y]][[i]], size=round(min_nboot)*w[y]) 
