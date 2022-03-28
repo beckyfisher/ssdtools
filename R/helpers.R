@@ -148,3 +148,6 @@ mean_weighted_values <- function(data, weight = TRUE) {
   weight <- round(weight)
   rep(x, weight)
 }
+
+
+weighted.geomean <- function(x, w, ...) exp(weighted.mean(log(x), w, ...))

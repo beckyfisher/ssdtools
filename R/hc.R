@@ -100,6 +100,9 @@ no_ssd_hc <- function() {
   }
   if(samples) {
     stop("Confidence intervals and bootstrap samples cannot both be returned, set either ci or samples to FALSE")
+  } else {
+    na <- rep(NA_real_, length(proportion))
+    samples_hc <- na
   }
   censoring <- censoring / rescale
   fun <- safely(fit_tmb)
@@ -116,13 +119,14 @@ no_ssd_hc <- function() {
     percent = proportion * 100, est = est * rescale,
     se = cis$se * rescale, lcl = cis$lcl * rescale, ucl = cis$ucl * rescale,
     wt = rep(1, length(proportion)),
-    nboot = nboot, pboot = length(estimates) / nboot
+    nboot = nboot, pboot = length(estimates) / nboot,
+    samples = samples_hc
   )
   replace_min_pboot_na(hc, min_pboot)
 }
 
 .ssd_hc_fitdists <- function(x, percent, ci, level, nboot,
-                             average, min_pboot, parametric, control, samples) {
+                             average, min_pboot, parametric, control, samples, geomean) {
   if (!length(x) || !length(percent)) {
     return(no_ssd_hc())
   }
@@ -179,7 +183,12 @@ no_ssd_hc <- function() {
     abind(x, y, along = 3)
   }, hc)
   suppressMessages(min <- apply(hc, c(1, 2), min))
-  suppressMessages(hc <- apply(hc, c(1, 2), weighted.mean, w = weight))
+  if(geomean){
+    suppressMessages(hc <- apply(hc, c(1, 2), weighted.geomean, w = weight))
+  } else {
+    suppressMessages(hc <- apply(hc, c(1, 2), weighted.mean, w = weight))    
+  }
+  
   min <- as.data.frame(min)
   hc <- as.data.frame(hc)
   method <- if(parametric) "parametric" else "non-parametric"
@@ -216,7 +225,7 @@ ssd_hc.list <- function(x, percent = 5, hc = 5, ...) {
 ssd_hc.fitdists <- function(x, percent = 5, hc = 5, ci = FALSE, level = 0.95, nboot = 1000, 
                             average = TRUE, delta = 7, min_pboot = 0.99,
                             parametric = TRUE,
-                            control = NULL, samples = FALSE, ...) {
+                            control = NULL, samples = FALSE, geomean = FALSE, ...) {
   chk_vector(percent)
   chk_numeric(percent)
   chk_range(percent, c(0,100))
@@ -244,7 +253,7 @@ ssd_hc.fitdists <- function(x, percent = 5, hc = 5, ci = FALSE, level = 0.95, nb
   x <- subset(x, delta = delta)
   hc <- .ssd_hc_fitdists(x, percent,
                    ci = ci, level = level, nboot = nboot, min_pboot = min_pboot, control = control,
-                   average = average, parametric = parametric, samples = samples)
+                   average = average, parametric = parametric, samples = samples, geomean = geomean)
   warn_min_pboot(hc, min_pboot)
 }
 
