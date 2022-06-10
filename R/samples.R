@@ -29,6 +29,25 @@ hcsamples <- function(estimates, what, x, .names = NULL) {
   x <- lapply(x, xhcsamples, args, what)
 }
 
+xhpsamples <- function(x, args, what) {
+  if(grepl("^ssd_q", what)) {
+    args$p <- x
+  } else {
+    args$q <- x
+  }
+  samples <- do.call(what, args)
+  samples
+}
+
+hpsamples <- function(estimates, what, x, .names = NULL) {
+  args <- transpose(estimates, .names = .names)
+  args <- purrr::map_depth(args, 2, function(x) {if(is.null(x)) NA_real_ else x})
+  args <- lapply(args, as.double)
+  x <- lapply(x, xhpsamples, args, what)
+}
+
+
+
 weighted_samples <- function(x, w, ...){
   min_nboot <- min(unlist(lapply(x, FUN = function(y){
     sapply(y, length)
