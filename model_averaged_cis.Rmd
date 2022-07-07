@@ -1,0 +1,191 @@
+---
+title: "Calculation of model averaged CIs"
+output: bookdown::html_document2
+author: Rebecca Fisher and David Fox
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(ggplot2)
+library(RColorBrewer)
+knitr::opts_chunk$set(echo = FALSE)
+load("test_coverage_v5.RData")
+#sims_save <- sims_out
+length(sims_save)
+
+# The palette with grey:
+cbp1 <- c("#999999", "#E69F00", "#56B4E9", "#009E73",
+          "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+
+# The palette with black:
+#cbp2 <- c("#000000", "#E69F00", "#56B4E9", "#009E73",
+#          "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+
+cbp2 <- c("black", "grey", "red", "blue",
+          "cyan", "gold", "magenta", "green")
+
+
+all_out <- sims_save %>% bind_rows()
+
+results <- all_out %>% 
+  na.omit() %>% 
+  dplyr::filter(est>0) %>% 
+  mutate(bias=log(est/true_hc),
+         covered=ifelse(true_hc>lcl & true_hc<ucl, 1, 0),
+         N=as.numeric(N),
+         width=ucl-lcl,
+         method=factor(method, levels = c("llogis","weight_sample_hc","ssdtools_hc",
+                                          "ssdtools_hcgm","mata.logboot", "mata.logdata","mata")))
+
+# coverage <- results %>% 
+#   dplyr::select(percent, datasets,method, N, covered) %>% 
+#   dplyr::group_by(percent, datasets, N, method) %>% 
+#   dplyr::summarise(coverage=mean(covered, na.rm=TRUE), .groups = "keep")
+# 
+# lwr <- results %>% 
+#   dplyr::select(percent, datasets,method, N, lcl) %>% 
+#   dplyr::group_by(percent, datasets, N, method) %>% 
+#   dplyr::summarise(lwr=mean(lcl, na.rm=TRUE), .groups = "keep")
+# 
+# upr <- results %>% 
+#   dplyr::select(percent, datasets,method, N, ucl) %>% 
+#   dplyr::group_by(percent, datasets, N, method) %>% 
+#   dplyr::summarise(upr=mean(ucl, na.rm=TRUE), .groups = "keep")
+
+results_summary <- results %>% 
+  dplyr::select(percent, datasets,method, N, covered, lcl, ucl, bias, width, est) %>% 
+  dplyr::group_by(percent, datasets, N, method) %>% 
+  dplyr::summarise_all(mean, na.rm=TRUE, .groups = "keep") %>% 
+  mutate(cwr=covered/width)
+
+```
+
+
+# Background
+
+This simulation study explores how model averaged confidence intervals vary across different methods of implementing model averaging. The simulation study is based on the seven datasets from the ccme_data in ssddata, using the parameters of the log-logistic distribution fitted to the original data to simulate new data based on a range of sample sizes. Simulated data were fit using ssdtools, with the currently recommended set of candidate distributions (log-normal, log-logistic, Gamma, inverse Weibull, Weibull, and log-normal-log-normal mixture).
+
+Methods of model average CI estimation examined include:
+
+* llogis - the lcl and ucl confidence intervals obtained from the bootstrap sample of the underlying distribution alone, with no model averaging.
+
+* mata - mata.wald confidence intervals calculated from the estimate and se obtained from the bootstrap sample, using AICc based weights via the MATA package
+
+* mata.log - mata.wald confidence intervals calculated from the estimate and se obtained from the bootstrap sample, using AICc based weights via the MATA package
+
+* mata.logdata - mata.wald confidence intervals calculated from the estimate and se obtained from the bootstrap sample, using AICc based weights via the MATA package where fits were obtained using log(x+1) data and back transformed to the original scale.
+
+* ssdtools_hc - An AICc based weighted arithmetic mean of the lcl and ucl estimates obtained from the bootstrap samples for each distribution, which is the method currently implemented by ssdtools
+
+* ssdtools_hcgm - An AICc based weighted geometric mean of the lcl and ucl estimates obtained from the bootstrap samples for each distribution.
+
+* weight_sample_hc - A weighted bootstrap method that draws bootstrap samples from each distribution proportional to their AICc based weights.
+
+For each method we calculated coverage, as well as the mean lower and upper confidence estimates.
+
+
+## Results
+
+
+Coverage of the "mata" method is extremely high across all sample sizes PC values and datasets (Figure \@ref(fig:coverage)). However, the exceptionally high coverage for the "mata" method appears to be related to estimation of extremely low, negative mean estimates for the lower confidence interval (Figure \@ref(fig:lwrci1)). Negative lower confidence bounds suggest this method is clearly not appropriate for these data, and that the assumption that the parameters are approximately normally distribution is violated. 
+
+
+```{r coverage, echo=FALSE, fig.cap="\\label{fig:coverage}Coverage for all methods for estimating model averaged confidence intervals on HCx"}
+ggplot(data = results_summary, aes(x=N, y=covered, col=method)) +
+  geom_line() +
+  #scale_x_continuous(trans="log") +
+  facet_grid(datasets~percent) +
+  geom_hline(yintercept = 0.95) +
+  #scale_color_brewer(palette = "Dark2")+
+  scale_color_manual(values = cbp2) +  
+  theme_bw()
+```
+
+
+
+
+```{r lwrci1, echo=FALSE, fig.cap="\\label{fig:lwrci1}Lower bound CI estimate for all methods for estimating model averaged confidence intervals on HCx"}
+
+ggplot(data = results_summary, aes(x=N, y=lcl, col=method)) +
+  geom_line() +
+  facet_grid(datasets~percent, scales = "free") +
+    scale_color_manual(values = cbp2) +  
+  theme_bw()
+```
+Calculation of the mata.wald confidence bands based on statistics obtained from the bootstrap samples on the log scale yielded excellent coverage (see cyan curve on Figure \@ref(fig:coverage)), and reasonable lower confidence bands when back transformed (Figure \@ref(fig:lwrci2)). The bootstrap logged mata.wald results were very similar to the weighted bootstrap method, both in terms of coverage (compare cyan curve to the grey curve on Figure \@ref(fig:coverage)) and the lower bound estimate of the confidence interval (Figure \@ref(fig:lwrci2)). Note that for some datasets this statistic appears to diverge slightly from the weighted sample method at higher sample sizes for some PC values and datasets (Figure \@ref(fig:coverage)). In particular, higher lower CI estimates results in reduced coverage, suggesting that the weighted sample method is more robust across sample sizes when estimating confidence limits for extreme PC values.
+
+Estimating 95% CI values via the mata.wald method using a fit based on log(x+1) of the data yield substantially better results than the mata method alone, with lower confidence bands much closer to zero (Figure \@ref(fig:lwrci2)). However, this method had much lower coverage than many of the alternative methods (Figure \@ref(fig:coverage)) and also did yield (albeit much less extreme) negative lower confidence bounds in some cases (Figure \@ref(fig:lwrci2)), likely due to the need to add 1 (and then subsequently subtract 1 upon back-transformation) to the raw data to ensure there are no negative values on the log scale.
+
+The weighted arithmetic mean currently adopted by ssdtools generally showed the lowest coverage across all datasets, with the exception of the mata.wald log(x+1) method described above (Figure \@ref(fig:coverage)). In particular, the lower PC CI estimate is often much higher at smaller sample sizes compared to other methods (Figure \@ref(fig:lwrci2)).
+
+
+```{r lwrci2, echo=FALSE,  fig.cap="\\label{fig:lwrci2}Lower bound CI estimate for different methods for estimating model averaged confidence intervals on HCx. Note the mata method has been removed due to large negative estimates."}
+results_summary %>% dplyr::filter(method!="mata") %>% 
+ggplot(aes(x=N, y=lcl, col=method)) +
+  geom_line() +
+  facet_grid(datasets~percent, scales = "free") +
+ #scale_y_continuous(trans="log") +
+    scale_color_manual(values = cbp2) +  
+  theme_bw()
+
+```
+
+
+Upper bound confidence estimates were relatively more similar across all methods, although again the mata.wald method without any transformation can yield extreme values in some cases (Figure \@ref(fig:uwrci1)).
+
+
+```{r uwrci1, echo=FALSE,  fig.cap="\\label{fig:uwrci1}Upper bound CI estimate for all methods for estimating model averaged confidence intervals on HCx."}
+
+ggplot(data = results_summary, aes(x=N, y=ucl, col=method)) +
+  geom_line() +
+  facet_grid(datasets~percent, scales = "free") +
+    scale_color_manual(values = cbp2) +  
+  scale_y_continuous(trans = "log") +
+  theme_bw()
+
+```
+
+After removing the mata.wald method without any transformation, in general it appears that the mata.logboot method results in slightly higher upper bound estimates compared to the other methods, and the mata.logdata method results in lower upper bound estimates (Figure \@ref(fig:uwrci2)). Occasional anomalous values are observed for the arithmetic and geometric weighted mean methods, a pattern that may resolve with a greater number of simulation iterations(Figure \@ref(fig:uwrci2)).
+
+```{r uwrci2, echo=FALSE,  fig.cap="\\label{fig:uwrci2}Upper bound CI estimate for all methods for estimating model averaged confidence intervals on HCx."}
+results_summary %>% dplyr::filter(method!="mata") %>% 
+ggplot(aes(x=N, y=ucl, col=method)) +
+  geom_line() +
+  facet_grid(datasets~percent, scales = "free") +
+    scale_color_manual(values = cbp2) +  
+    scale_y_continuous(trans = "log") +
+  theme_bw()
+
+```
+
+```{r bias, echo=FALSE,  fig.cap="\\label{fig:bias}Bias in HCx estimates for each method calculated as log(est)/log(true_hc)."}
+
+ggplot(data = results, aes(x=N, y=bias, col=method), size=0.25, stroke=0) +
+  geom_jitter(alpha=0.5) +
+  #ylim(-1, 6) +
+  facet_grid(datasets~percent, scales = "free") +
+    scale_color_manual(values = cbp2) +
+  theme_bw()
+#View(results %>% filter(percent==1 & datasets == "Boron" & N==8 & method=="mata"))
+```
+
+```{r cwr, echo=FALSE, fig.cap="\\label{fig:cwr}Coverage to HCx CI width ratio for each method."}
+
+ggplot(data = results_summary, aes(x=N, y=cwr, col=method)) +
+  geom_line() +
+  facet_grid(datasets~percent, scales = "free") +
+    scale_color_manual(values = cbp2) +
+      scale_y_continuous(trans = "log") +
+  theme_bw()
+
+```
+
+## Recommendation
+
+The current approach adopted in ssdtools for calculating model averaged confidence intervals based on a simple weighted arithmetic mean yields coverage values that fall substantially short of their notional 95% level, even at quite high samples sizes.
+
+Overall it appears that the weighted sample and the log transformed bootstrap mata.wald methods provide similar coverage and perform the best across all methods that do not yield negative lower confidence bounds. Of these two approaches, the weighted sample method appears slightly more robust across datasets and the sample sizes examined compared to the transformed boostrap mata.wald method. The weighted sample method makes no underlying assumption about the distribution of the estimates, and is therefore more robust compared to the other methods.
+
+In addition to being more robust than the other methods, the weighted sample method also has the advantage of not requiring a full number of bootstrap samples to be drawn from each distribution. Rather a sample proportional to the weight of each distribution can be drawn such that the total bootstrap samples equals the number required. This will substantially speed up bootstrap based CI estimation, whilst still yielding a robust result.
+
+
